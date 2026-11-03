@@ -1,0 +1,92 @@
+package com.ust.pos.api.shelf;
+
+import com.ust.pos.api.BaseController;
+import com.ust.pos.dto.PaginationDto;
+import com.ust.pos.dto.ShelfDto;
+import com.ust.pos.dto.WsDto;
+import com.ust.pos.model.Shelf;
+import com.ust.pos.shelf.service.ShelfService;
+import io.micrometer.common.util.StringUtils;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/shelf")
+public class ShelfControllerApi extends BaseController {
+    private final ShelfService shelfService;
+
+    public ShelfControllerApi(ShelfService shelfService) {
+        this.shelfService = shelfService;
+    }
+
+    @PostMapping("/list")
+    @PreAuthorize("hasAuthority('Admin')")
+    public WsDto<ShelfDto> listCategories(@RequestBody PaginationDto paginationDto) {
+        Pageable pageable = getPageable(paginationDto.getPage(), paginationDto.getSizePerPage(), paginationDto.getSortDirection(), paginationDto.getSortField());
+        if (StringUtils.isNotEmpty(paginationDto.getKeyword())) {
+            Specification<Shelf> example = buildGlobalSearchSpec(Shelf.class, paginationDto.getKeyword());
+            if (example != null) {
+                return shelfService.findAll(example, pageable);
+            }
+        }
+        return shelfService.findAll(pageable);
+    }
+
+    @PostMapping("/add")
+    @PreAuthorize("hasAuthority('Admin')")
+    public ShelfDto saveShelf(@RequestBody ShelfDto shelfDto) {
+
+        return shelfService.save(shelfDto);
+
+    }
+
+
+    @GetMapping("/update")
+    public ShelfDto showEditPage(@RequestParam String identifier) {
+
+        return shelfService.findByIdentifier(identifier);
+
+    }
+
+    @PutMapping("/update")
+    public ShelfDto saveEditedShelf(@RequestBody ShelfDto shelfDto) {
+
+        return shelfService.update(shelfDto);
+    }
+
+
+    @DeleteMapping("/delete")
+    public boolean deleteShelf(@RequestParam String identifier) {
+        try {
+            shelfService.delete(identifier);
+        } catch (Exception e) {
+            return false;
+        }
+        return true;
+
+    }
+
+    @GetMapping("/toggle")
+    public boolean toggle(@RequestParam String identifier, boolean status) {
+        try {
+            shelfService.changeShelfStatus(identifier, status);
+        } catch (Exception e) {
+            return false;
+        }
+        return true;
+    }
+
+    @GetMapping("/findAllActive")
+    public List<ShelfDto> allactive() {
+        return shelfService.findActiveShelf();
+    }
+
+    @PostMapping("/changeStatus")
+    public ShelfDto changestatus(@RequestBody ShelfDto shelfDto) {
+        return shelfService.changeShelfStatus(shelfDto.getIdentifier(), shelfDto.isStatus());
+    }
+}

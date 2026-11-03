@@ -1,0 +1,262 @@
+package com.ust.pos;
+
+import com.ust.pos.category.service.impl.CategoryServiceImpl;
+import com.ust.pos.dto.CategoryDto;
+import com.ust.pos.model.Category;
+import com.ust.pos.model.CategoryRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.modelmapper.ModelMapper;
+import org.modelmapper.TypeToken;
+import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
+
+import java.lang.reflect.Type;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class CategoryServiceTest {
+
+    @Mock
+    private CategoryRepository categoryRepository;
+
+    @Mock
+    private ModelMapper modelMapper;
+
+    @InjectMocks
+    private CategoryServiceImpl categoryService;
+
+    private Category category;
+    private CategoryDto categoryDto;
+
+    @BeforeEach
+    void setUp() {
+        category = new Category();
+        category.setId(1L);
+        category.setIdentifier("FOOD");
+        category.setSupercategory("");
+
+        categoryDto = new CategoryDto();
+        categoryDto.setId(1L);
+        categoryDto.setIdentifier("FOOD");
+        categoryDto.setSupercategory("");
+    }
+
+    @Test
+    void save_shouldSaveCategory() {
+        when(modelMapper.map(categoryDto, Category.class)).thenReturn(category);
+        when(categoryRepository.findByIdentifier(categoryDto.getIdentifier())).thenReturn(null);
+
+        CategoryDto result = categoryService.save(categoryDto);
+
+        assertNotNull(result);
+        assertEquals("FOOD", result.getIdentifier());
+        verify(categoryRepository, times(1)).save(category);
+    }
+
+
+    @Test
+    void findById_shouldReturnCategory() {
+        when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
+        when(modelMapper.map(category, CategoryDto.class)).thenReturn(categoryDto);
+
+        CategoryDto result = categoryService.findById(1L);
+
+        assertEquals(1L, result.getId());
+        assertEquals("FOOD", result.getIdentifier());
+    }
+
+    @Test
+    void findById_shouldThrowException_whenNotFound() {
+        when(categoryRepository.findById(1L)).thenReturn(Optional.empty());
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> categoryService.findById(1L)
+        );
+
+        assertTrue(exception.getMessage().contains("Category not found"));
+    }
+
+    @Test
+    void update_shouldUpdateCategory() {
+        when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
+        when(categoryRepository.save(category)).thenReturn(category);
+        when(modelMapper.map(category, CategoryDto.class)).thenReturn(categoryDto);
+
+        CategoryDto result = categoryService.update(categoryDto);
+
+        assertEquals("FOOD", result.getIdentifier());
+        verify(categoryRepository, times(1)).save(category);
+    }
+
+    @Test
+    void update_shouldThrowException_whenCategoryNotFound() {
+        CategoryDto dto = new CategoryDto();
+        dto.setId(99L);
+        dto.setIdentifier("FOOD");
+
+        when(categoryRepository.findById(99L))
+                .thenReturn(Optional.empty());
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> categoryService.update(dto)
+        );
+
+        assertEquals("Category not found", exception.getMessage());
+    }
+
+    @Test
+    void findAll_shouldReturnList() {
+        Page<Category> page = new PageImpl<>(List.of(category));
+
+        when(categoryRepository.findByDeletedFalse(any(Pageable.class))).thenReturn(page);
+
+        Type listType = new TypeToken<List<CategoryDto>>() {
+        }.getType();
+        when(modelMapper.map(page.getContent(), listType))
+                .thenReturn(List.of(categoryDto));
+
+        List<CategoryDto> result =
+                categoryService.findAll(PageRequest.of(0, 50, Sort.unsorted())).getDtoList();
+
+        assertEquals(1, result.size());
+        assertEquals("FOOD", result.get(0).getIdentifier());
+    }
+
+    @Test
+    void findAllWithSpecificationShouldReturnList() {
+        Page<Category> page = new PageImpl<>(List.of(category));
+        Specification<Category> spec = mock(Specification.class);
+
+        when(categoryRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(page);
+
+        Type listType = new TypeToken<List<CategoryDto>>() {
+        }.getType();
+        when(modelMapper.map(page.getContent(), listType))
+                .thenReturn(List.of(categoryDto));
+
+        List<CategoryDto> result =
+                categoryService.findAll(spec, PageRequest.of(0, 50, Sort.unsorted())).getDtoList();
+
+        assertEquals(1, result.size());
+        assertEquals("FOOD", result.get(0).getIdentifier());
+    }
+
+    @Test
+    void delete_shouldSoftDeleteCategory() {
+        category.setStatus(true);
+        category.setDeleted(false);
+
+        when(categoryRepository.findByIdentifier("FOOD")).thenReturn(category);
+
+        categoryService.delete("FOOD");
+
+        assertTrue(category.isDeleted());
+        assertFalse(category.isStatus());
+        verify(categoryRepository, times(1)).save(category);
+    }
+
+    @Test
+    void findSubCategories_shouldReturnSubCategories() {
+        category.setSupercategory("MAIN");
+        category.setStatus(true);
+        categoryDto.setSupercategory("MAIN");
+
+        when(categoryRepository.findByStatusTrueAndSupercategoryIsNot(""))
+                .thenReturn(List.of(category));
+        when(modelMapper.map(category, CategoryDto.class))
+                .thenReturn(categoryDto);
+
+        List<CategoryDto> result = categoryService.findSubCategories();
+
+        assertFalse(result.isEmpty());
+        assertEquals("MAIN", result.get(0).getSupercategory());
+    }
+
+    @Test
+    void save_shouldFail_whenCategoryAlreadyExists() {
+        CategoryDto dto = new CategoryDto();
+        dto.setIdentifier("FOOD");
+
+        Category existing = new Category();
+        existing.setIdentifier("FOOD");
+
+        when(categoryRepository.findByIdentifier("FOOD"))
+                .thenReturn(existing);
+
+        CategoryDto result = categoryService.save(dto);
+
+        assertFalse(result.isSuccess());
+        assertEquals(
+                "Category with identifier - FOOD already exists",
+                result.getMessage()
+        );
+
+        verify(categoryRepository, never()).save(any());
+    }
+
+    @Test
+    void save_shouldFail_whenSoftDeletedRecord() {
+        CategoryDto dto = new CategoryDto();
+        dto.setIdentifier("FOOD");
+
+        Category existing = new Category();
+        existing.setIdentifier("FOOD");
+        existing.setDeleted(true);
+
+        when(categoryRepository.findByIdentifier("FOOD"))
+                .thenReturn(existing);
+
+        CategoryDto result = categoryService.save(dto);
+
+        assertFalse(result.isSuccess());
+        verify(categoryRepository, never()).save(any());
+    }
+
+    @Test
+    void changeCategoryStatusTest() {
+        Category category1 = new Category();
+        category1.setIdentifier("FOOD");
+        category1.setStatus(false);
+
+        CategoryDto dto = new CategoryDto();
+        dto.setIdentifier("FOOD");
+        dto.setStatus(true);
+
+        when(categoryRepository.findByIdentifier("FOOD"))
+                .thenReturn(category1);
+        when(categoryRepository.save(category1))
+                .thenReturn(category1);
+        when(modelMapper.map(category1, CategoryDto.class))
+                .thenReturn(dto);
+
+        CategoryDto result = categoryService.changeCategoryStatus("FOOD", true);
+
+        assertNotNull(result);
+        assertTrue(result.isStatus());
+        assertEquals("FOOD", result.getIdentifier());
+
+        verify(categoryRepository, times(1)).save(category1);
+    }
+
+    @Test
+    void changeCategoryStatus_NotFound() {
+        when(categoryRepository.findByIdentifier("FOOD"))
+                .thenReturn(null);
+
+        CategoryDto result = categoryService.changeCategoryStatus("FOOD", true);
+
+        assertNull(result);
+    }
+}
